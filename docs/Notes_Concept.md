@@ -128,3 +128,40 @@ Downstream: The later layers and consumers of that data (e.g., your dbt staging 
 
 Example in Practice:
 If you change a column name in your staging model (stg_population), any downstream models (like a dashboard or a mart table that uses stg_population) will be affected by that change.
+
+##  Canonical:
+In technology, data engineering, and general terminology, canonical means the standard, authoritative, single source of truth version of something.
+
+When you have multiple copies, variations, or messy raw versions of data floating around, the "canonical" version is the official, approved master copy that everyone agrees to use.
+
+Where You See "Canonical" in Data Engineering:
+Canonical Reference Data (like your province list):
+In your data pipeline, instead of letting every random CSV file spell or code Cambodian provinces differently, you establish a canonical list of 25 provinces (via your dbt seed). That seed is the canonical source—the official rulebook that all other tables look up against.
+
+Canonical Data Models / Schemas:
+A canonical data model is a standard, unified data format used across an organization. Even if different source systems send data in completely different shapes, you transform them into a single canonical format before loading them into your data warehouse.
+
+Summary
+
+## The definition of airflow:
+What you can say in an interview
+"Airflow doesn't make a simple pipeline more interesting — it makes a complex pipeline survivable. At my project's scale, cron would be fine. I'm using Airflow because I wanted to learn the operational guarantees: retries, observability, dependency enforcement, backfill. Those don't feel valuable at n=1, but they're the reason every serious data team uses an orchestrator."
+
+Interviewers respect this answer more than "I love Airflow." Because it shows you understand the tool's actual value, not its marketing.
+
+
+
+
+## Intermediate layer:
+In data engineering, the intermediate layer (or intermediate model) sits directly between your clean staging models and your final business-facing marts.
+
+It acts as the workshop or processing floor of your data warehouse.
+
+What Purpose Does an Intermediate Model Serve?
+While staging models clean up individual source files one-by-one, and marts serve final, ready-to-query reporting tables, intermediate models handle the heavy lifting of:
+
+Complex Joins: Merging two or more cleaned datasets together (such as joining a population fact table with a province dimension table).
+
+Intermediate Business Logic: Calculating metrics, flags, or intermediate transformations that multiple different downstream dashboards or marts might need.
+
+Reusability: Instead of rewriting the same complex join or calculation in five different mart tables, you write it once in an intermediate model, and let your marts simply reference (ref) it.

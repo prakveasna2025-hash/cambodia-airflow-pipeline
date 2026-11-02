@@ -35,3 +35,24 @@ uv run dbt debug --project-dir cambodia_dw
 ## Check 3 — stg_province has 25 rows
 4. docker exec -it cambodia_dw_postgres psql -U airflow -d airflow -c "SELECT COUNT(*) FROM dbt_dev_staging.stg_province;"
 
+
+
+
+## Cheatsheet file:
+
+# My cheatsheet
+
+## Airflow CLI
+- List DAGs: `airflow dags list | Select-String <name>`
+- Trigger: `airflow dags trigger <dag_id>`
+- Task states: `airflow tasks states-for-dag-run <dag_id> <run_id>`
+- List runs: `airflow dags list-runs <dag_id>`
+
+## dbt
+- Run: `uv run dbt run --project-dir cambodia_dw`
+- Test: `uv run dbt test --project-dir cambodia_dw`
+- Seed: `uv run dbt seed --project-dir cambodia_dw`
+
+## Warehouse
+- URL: postgresql+psycopg2://airflow:changeme@127.0.0.1:5434/airflow
+- Container: cambodia_dw_postgres (host 5434 → container 5432)
