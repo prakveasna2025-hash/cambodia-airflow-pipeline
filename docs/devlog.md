@@ -433,3 +433,46 @@ Interview lines:
 Commands:
 - uv run dbt run --project-dir cambodia_dw
 - uv run dbt test --project-dir cambodia_dw
+
+
+## Day 21 - Intermediate and summary mart
+
+Built: 4 files.
+- models/intermediate/int_population_by_province.sql - fact joined to dim, renamed for downstream
+- models/intermediate/schema.yml - 4 tests
+- models/marts/province_year_summary.sql - summary mart, one row per (province, year)
+- marts/schema.yml extended with province_year_summary block (8 tests)
+- dbt_project.yml - intermediate config (schema: intermediate, materialized: view)
+
+Decisions:
+- Separate intermediate + summary layers, not fused
+  Intermediate does the work (join, rename). Mart is presentation (final column names, table materialization)
+- Summary designed for multi-indicator extension - add columns, not restructure
+- int_population_by_province is a view (cheap, always fresh)
+- province_year_summary is a table (queried by BI, must be fast)
+- province_key is unique in summary today because only 2024 exists
+  When 2025 arrives, uniqueness test will fail - forces acknowledgment of grain change, not silent drift
+
+Verification:
+- dbt run PASS=10 (3 staging + 3 dims + 2 facts + 1 int + 1 summary)
+- dbt test all passing
+- Summary row count = 25
+- Top 5 by population matches fact (Phnom Penh, Kandal, Prey Veng, Battambang, Siem Reap)
+- RECONCILIATION: SUM(population_total) = SUM(fact_population) = 17,280,543
+
+Issues resolved:
+- YAML parse error - paste landed inside spread_value description string, breaking quote
+  Fixed with full-file overwrite, verified with Select-String SEMANTICS UNKNOWN
+
+Interview lines:
+- Intermediate models prevent duplication - shared logic built once, referenced by multiple marts
+- Marts materialize as tables (BI queries), intermediate as views (cheap recompute)
+- Uniqueness tests on intermediate/summary encode the current grain
+  When data grain changes, test fails - forces acknowledgment, prevents silent dashboard breaks
+- Reconciliation between summary and fact is the real proof of aggregation correctness
+  Row count alone can hide subtle aggregation bugs (missing rows offset by wrong values)
+
+Commands:
+- uv run dbt run --project-dir cambodia_dw
+- uv run dbt test --project-dir cambodia_dw
+- docker exec -it cambodia_dw_postgres psql -U airflow -d airflow -c "SELECT (SELECT SUM(population_total) FROM dbt_dev_marts.province_year_summary) AS summary_total, (SELECT SUM(population) FROM dbt_dev_marts.fact_population) AS fact_total;"
