@@ -70,3 +70,17 @@ models:
         tests: [not_null]
       - name: spread_value
         description: "SEMANTICS UNKNOWN. Do not use downstream. See source-notes.md Day 3."
+
+  - name: province_year_summary
+    description: "Summary mart - one row per (province, year). Currently 2024 only."
+    columns:
+      - name: province_key
+        tests: [not_null, unique]
+      - name: province_code
+        tests: [not_null, unique]
+      - name: province_name
+        tests: [not_null, unique]
+      - name: year
+        tests: [not_null]
+      - name: population_total
+        tests: [not_null]
