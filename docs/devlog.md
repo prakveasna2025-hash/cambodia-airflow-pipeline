@@ -476,3 +476,39 @@ Commands:
 - uv run dbt run --project-dir cambodia_dw
 - uv run dbt test --project-dir cambodia_dw
 - docker exec -it cambodia_dw_postgres psql -U airflow -d airflow -c "SELECT (SELECT SUM(population_total) FROM dbt_dev_marts.province_year_summary) AS summary_total, (SELECT SUM(population) FROM dbt_dev_marts.fact_population) AS fact_total;"
+
+
+## Day 22 - Quality tests
+
+Built:
+- 3 custom SQL tests in cambodia_dw/tests/ (assert_positive_population, assert_positive_exchange_values, assert_exchange_rate_range)
+- 6 accepted_values tests in marts/schema.yml (dim_date: quarter/month/day_of_week; dim_indicator: indicator_code/unit/grain)
+- 1 relationships test in intermediate/schema.yml (int_population_by_province.province_key -> dim_province)
+- Test count: 67 total (was 50)
+
+Decisions:
+- No test on purchase <= sale: 16 documented inverted rows would fail every run
+- No test on midpoint formula: 2109 rounding inconsistencies would fail every run
+- No test on missing days: 49 known gaps, pinned in validators.py Day 14
+- Business-rule tests catch semantic errors (population <= 0), not just structural (not_null/unique)
+- accepted_values on dim_indicator fields validates the metric catalog contract
+
+Demo (deliberately corrupted data):
+- UPDATE raw.population_by_province SET Population = -1 WHERE province_code = KH-12
+- dbt run --select fact_population+ rebuilt fact/int/summary with -1
+- dbt test FAILED: assert_positive_population caught 1 result, ERROR=1
+- Restored via extractor (TRUNCATE + INSERT) + dbt run
+- All 67 tests pass again
+
+Issues resolved:
+- PowerShell docker exec with escaped \" failed for psql UPDATE
+- Solution: write SQL to file, pipe with Get-Content | docker exec -i
+- Same pattern as Day 8, restated
+
+Interview lines:
+- Test the structural layer (not_null/unique) AND the semantic layer (business rules)
+- Not every business rule is testable when source has known defects
+  purchase <= sale cannot be tested because 16 known inverted rows exist
+  Those defects are pinned in validators.py, not dbt tests
+- Test failures name the specific rule - assert_positive_population, not just ERROR
+- Demo proves the defense in depth: bad data at source is caught at fact layer before it reaches summary
