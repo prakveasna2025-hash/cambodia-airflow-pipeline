@@ -18,6 +18,21 @@ models:
         tests: [not_null, unique]
       - name: date
         tests: [not_null, unique]
+      - name: quarter
+        tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4]
+      - name: month
+        tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+      - name: day_of_week
+        tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2, 3, 4, 5, 6]
 
   - name: dim_indicator
     description: "Indicator catalog - declares measures, units, grains, and source tables."
@@ -25,13 +40,31 @@ models:
       - name: indicator_key
         tests: [not_null, unique]
       - name: indicator_code
-        tests: [not_null, unique]
+        tests:
+          - not_null
+          - unique
+          - accepted_values:
+              arguments:
+                values:
+                  - population
+                  - exchange_rate_purchase
+                  - exchange_rate_sale
+                  - exchange_rate_midpoint
+                  - exchange_rate_reference
       - name: indicator_name
         tests: [not_null]
       - name: indicator_unit
-        tests: [not_null]
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['persons', 'KHR per USD']
       - name: indicator_grain
-        tests: [not_null]
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['province_snapshot_2024', 'date_national']
 
   - name: fact_population
     description: "Snapshot fact - one row per province per snapshot year. 2024 only."

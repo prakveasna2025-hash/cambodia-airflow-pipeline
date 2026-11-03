@@ -2,10 +2,16 @@ version: 2
 
 models:
   - name: int_population_by_province
-    description: "Intermediate — population fact joined to province dimension. Grain: (province_key, year). Unique today because only 2024 data exists; will need updating when multi-year data arrives."
+    description: "Intermediate - population fact joined to province dimension. Grain: (province_key, year)."
     columns:
       - name: province_key
-        tests: [not_null, unique]
+        tests:
+          - not_null
+          - unique
+          - relationships:
+              arguments:
+                to: ref('dim_province')
+                field: province_key
       - name: year
         tests: [not_null]
       - name: population_total
