@@ -306,3 +306,40 @@ uv run dbt debug --project-dir cambodia_dw
 - Trigger: UI at `http://localhost:8080`
 - Check run: `docker exec airflow-airflow-scheduler-1 airflow dags list-runs cambodia_pipeline --no-backfill`
 '@ | Out-File -FilePath docs\devlog.md -Append -Encoding utf8
+
+
+
+## Day 23 - SQL analysis
+
+Built:
+- sql/analysis/day23_queries.sql - 8 analytical queries in one runnable file
+
+Queries:
+1. Baseline totals (count, sum, min, max) - sanity check
+2. Top 5 provinces with % of total (CTE + CROSS JOIN)
+3. Average exchange rate per year (JOIN + GROUP BY)
+4. Volatility per year (MAX - MIN range)
+5. Data completeness (LEFT JOIN dim_date vs fact)
+6. Weekday vs weekend average (boolean grouping)
+7. Provinces above national average (CTE + WHERE)
+8. 30-day rolling average (window function)
+
+Findings:
+- Q4: 2010 was the highest-volatility year (188), not 2008. My intuition was wrong, data was right.
+- Q5: 49 missing days surfaced via LEFT JOIN - cross-validated Day 3's Python verification with independent method
+- Q6: Weekend and weekday rates nearly identical - NBC publishes daily reference rate including non-trading days
+- Q7: 11 provinces above national average (not 12-13) - Phnom Penh skews the mean
+
+Interview lines:
+- Trust the data over intuition - 2010 highest volatility, not the obvious 2008
+- Cross-validate findings with two independent methods (Python max-min-len vs SQL LEFT JOIN)
+- Weekend/weekday identical rates: reference rate vs market rate distinction
+- Mean vs median skew: WHERE x > AVG(x) returns fewer than half when distribution is right-skewed
+- Window functions: ROWS BETWEEN N PRECEDING AND CURRENT ROW for rolling averages
+
+Issues:
+- Em-dashes in \echo headers rendered as ??? - Windows/psql encoding, cosmetic only
+- Same issue as earlier Days; fix by using hyphens in SQL comments
+
+Commands:
+- Get-Content sql/analysis/day23_queries.sql | docker exec -i cambodia_dw_postgres psql -U airflow -d airflow
