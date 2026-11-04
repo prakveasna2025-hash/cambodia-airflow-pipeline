@@ -237,24 +237,26 @@ uv run dbt debug --project-dir cambodia_dw
 **Commands:**
 - Tests: `uv run pytest tests/ -v`
 - Warehouse health: `uv run python scripts/validate_warehouse.py`
+
+
 ## Day 15 — DAG skeleton
 
 **Built:**
 - `dags/cambodia_pipeline_dag.py` — DAG `cambodia_pipeline`. Structure: `[extract_population, extract_exchange_rate] >> validate_warehouse` (fan-out/fan-in). All three callables raise `NotImplementedError("Wired on Day 16")` — **intentionally**.
 
 **Decisions:**
-- **Airflow 3.x import path** — `from airflow.providers.standard.operators.python import PythonOperator` (the `standard` provider package).
+- **Airflow 3.x import path** — `from airflow.providers.standard.operators.python import PythonOperator` (the `standard` provider package; old `airflow.operators.python` path is deprecated).
 - **`schedule=None`** — manual trigger only, dev-appropriate.
 - **`catchup=False`** — prevents ~365 backfill runs on activation (start_date is 2025-01-01).
-- **Timezone-aware `start_date`** — `datetime(2025, 1, 1, tzinfo=timezone.utc)`.
-- **`retries=1`, `retry_delay=1min`** — survives transient DB blips; more would hide real failures.
+- **Timezone-aware `start_date`** — `datetime(2025, 1, 1, tzinfo=timezone.utc)`; required in Airflow 2.x+.
+- **`retries=1`, `retry_delay=1min`** — one retry survives transient DB blips; more would hide real failures.
 - **`doc_md=__doc__`** — module docstring rendered in UI.
 - **Stubs instead of silent success** — a DAG that "succeeds" doing nothing lies; a `NotImplementedError` names exactly where the work stops.
 
 **Verified:**
 - `airflow dags list` → `cambodia_pipeline` registered, no import errors
 - `airflow dags show cambodia_pipeline` → DOT graph confirms fan-out/fan-in
-- UI Graph view displays correct structure
+- UI Graph view displays the correct structure
 
 **Known blockers for Day 16 (not fixed yet):**
 - **A. Import path** — extractors use `from validators import`, will fail inside Airflow worker
@@ -270,245 +272,37 @@ uv run dbt debug --project-dir cambodia_dw
 - Structure: `docker exec airflow-airflow-scheduler-1 airflow dags show cambodia_pipeline`
 - UI: `http://localhost:8080`
 
+@'
+
 ## Day 16 — Retries, logging, full run
 
 **Built:**
-- Structured logging in 3 scripts (extract_population.py, extract_exchange_rate.py, validate_warehouse.py) — Python logging module with timestamp, level, logger name
-- docker/airflow/docker-compose.yaml — scripts/ and data/ volume mounts; shared_network external
-- docker/docker-compose.yml — shared_network external
-- docker/airflow/.env — WAREHOUSE_DB_URL, PYTHONPATH, AIRFLOW__CORE__LOAD_EXAMPLES=False (gitignored)
-- dags/cambodia_pipeline_dag.py — real imports; retries=2, retry_delay=1min, retry_exponential_backoff=True, max_retry_delay=10min
+- Structured logging in 3 scripts (`scripts/extract_population.py`, `scripts/extract_exchange_rate.py`, `scripts/validate_warehouse.py`) — Python `logging` module with `%(asctime)s | %(levelname)s | %(name)s | %(message)s`, replaces `print()`
+- `docker/airflow/docker-compose.yaml` — added `scripts/` and `data/` volume mounts under `x-airflow-common`; `shared_network` external
+- `docker/docker-compose.yml` — `shared_network` external
+- `docker/airflow/.env` — `WAREHOUSE_DB_URL=postgresql+psycopg2://airflow:changeme@cambodia_dw_postgres:5432/airflow`, `PYTHONPATH=/opt/airflow`, `AIRFLOW__CORE__LOAD_EXAMPLES=False` (gitignored)
+- `dags/cambodia_pipeline_dag.py` — real imports from `scripts.extract_*` + `scripts.validate_warehouse`; retries increased to 2 with `retry_exponential_backoff=True`, `max_retry_delay=10min`
 
 **Decisions:**
-- Two-endpoint rule: WAREHOUSE_DB_URL endpoint-relative — host 127.0.0.1:5434, worker cambodia_dw_postgres:5432
-- External network over per-service networks — decouples the two compose files
-- logging module over print — timestamps, levels, logger names in Task Log
-- Exponential backoff — first retry catches blips, later ones catch slow recovery, capped at 10min
-- AIRFLOW__CORE__LOAD_EXAMPLES=False — disables ~80 example DAGs
+- **Two-endpoint rule** — `WAREHOUSE_DB_URL` is endpoint-relative. Host: `127.0.0.1:5434`. Inside Airflow worker: `cambodia_dw_postgres:5432` (container DNS + internal port). The mapped port 5434→5432 is host-only.
+- **External network over per-service `networks:` list** — decouples the two compose files. Either stack can be recreated independently.
+- **`logging` module over `print()`** — timestamps, levels, logger names in Task Log tab. Scripts stay framework-agnostic.
+- **Exponential backoff** — `retries=2`, `retry_delay=1min`, `retry_exponential_backoff=True`, `max_retry_delay=10min`. First retry catches quick blips; later retries catch slow recovery; cap prevents unbounded waits.
+- **`AIRFLOW__CORE__LOAD_EXAMPLES=False`** — disables ~80 example DAGs cluttering the UI.
 
 **Verification:**
-- Each script from worker: extract_population 25 rows, extract_exchange_rate 7531 rows, validate_warehouse ALL CHECKS PASSED
-- DAG triggered from UI → state=success, ~2 min end-to-end
-- CLI action logger fix (metadata Postgres volume password): ALTER USER airflow WITH PASSWORD 'airflow'
+- Each script tested individually from worker:
+  - `docker exec airflow-airflow-worker-1 python /opt/airflow/scripts/extract_population.py` → `✓ Load succeeded — 25 rows validated.`
+  - `docker exec airflow-airflow-worker-1 python /opt/airflow/scripts/extract_exchange_rate.py` → `✓ Load succeeded — 7531 rows validated.`
+  - `docker exec airflow-airflow-worker-1 python /opt/airflow/scripts/validate_warehouse.py` → `RESULT: ALL CHECKS PASSED`
+- DAG triggered from UI → `airflow dags list-runs cambodia_pipeline` shows `state=success`, ~2 minutes
+- CLI action logger issue (metadata Postgres volume had wrong password) fixed via `ALTER USER airflow WITH PASSWORD 'airflow'` — same fix as Day 4 warehouse bug
 
-**Interview line:** Connection strings are endpoint-relative: 127.0.0.1:5434 from host, cambodia_dw_postgres:5432 from container. Cross-container uses service name + internal port, resolved by Docker DNS.
-
-**Commands:**
-- Test script from worker: docker exec airflow-airflow-worker-1 python /opt/airflow/scripts/SCRIPT.py
-- Trigger: UI at http://localhost:8080
-- Check run: docker exec airflow-airflow-scheduler-1 airflow dags list-runs cambodia_pipeline --no-backfill
-
-## Day 18 — Staging: exchange rate
-
-**Built:**
-- `cambodia_dw/models/staging/stg_exchange_rate.sql` — 1:1 view over `raw.exchange_rate`. Renames `spread_market_day_x-1_over_oer_day_x_midpoint` → `spread_value` (hyphens in source name require double quotes AND are unusable downstream). Explicit `::date` / `::bigint` / `::double precision` casts. Loads documented defects as-is (16 inverted rows, 49 missing days, 2,109 midpoint rounding).
-- `cambodia_dw/models/staging/schema.yml` — 17 tests across all three staging models:
-  - `stg_population`: not_null + unique on `province_code`, `province_name`; not_null on `population` (5 tests)
-  - `stg_province`: not_null + unique on `province_key`, `province_code`, `province_name` (6 tests)
-  - `stg_exchange_rate`: not_null + unique on `date`; not_null on `purchase`, `sale`, `midpoint`, `exchange_rate` (6 tests)
-- `cambodia_dw/dbt_project.yml` — removed dead `example:` block (folder deleted Day 17, config was generating an unused-path warning on every `dbt run`).
-
-**Decisions:**
-- **Test scope = not_null + unique only.** No `relationships` (needs stg_dim_date first, out of today's scope). No `accepted_values` (ranges undefined for exchange rates). No custom tests for the Day 3 defects.
-- **Day 3 defects are NOT tested in dbt.** `purchase > sale` on 16 rows would make `dbt test` fail on every run. Defect-count assertions live in `validators.py` (Day 14 — `EXPECTED_INVERTED_ROWS = 16`). dbt tests are structural contracts; validators pin known defects at expected counts. **Mixing them trains people to ignore test failures.**
-- **`spread_value` neutral rename.** Source name is unusable (hyphens, requires quotes in every query). `spread_value` doesn't claim the formula is known — semantics still under investigation (Day 3, source-notes.md).
-- **Kept `::double precision` for float columns.** Source is float (Day 10 — pandas `float64` → Postgres `double precision`). Casting float→numeric doesn't recover lost precision — the precision was lost upstream.
-
-**Issues resolved:**
-- **Unquoted hyphenated identifier** — `spread_market_day_x-1_over_oer_day_x_midpoint` parsed as subtraction (`spread_market_day_x - 1_over_...`) → `trailing junk after numeric literal` error. Fix: `"spread_market_day_x-1_over_oer_day_x_midpoint"` — same identifier-folding rule as Day 8 capitals, extended to punctuation.
-- **Dead `example:` config** — `+enabled: false` on a folder that was deleted generated a warning on every `dbt run`. Removed.
-
-**Verification:**
-- `uv run dbt run --project-dir cambodia_dw` → `PASS=3 WARN=0 ERROR=0`, no unused-path warning
-- `uv run dbt test --project-dir cambodia_dw` → `PASS=17 WARN=0 ERROR=0`
-- `\dv dbt_dev_staging.*` → 3 views
-- Sample query confirms `spread_value` column exists, no quotes needed downstream
-
-**Interview lines:**
-- *"Unquoted identifiers with hyphens are parsed as arithmetic — `spread_market_day_x-1_...` becomes subtraction. Always double-quote: `"spread_market_day_x-1_over_oer_day_x_midpoint"`. Same rule as capitals (Day 8): PostgreSQL folds unquoted identifiers to lowercase and treats punctuation as operators."*
-- *"dbt tests are structural contracts — not_null, unique, relationships. Defect-count assertions (exactly 16 inverted rows) belong in validators, not dbt. Mixing them makes `dbt test` fail on every run, which trains people to ignore alerts."*
-- *"`spread_value` neutral rename — doesn't claim the formula is known. Better than `spread_pct` or `spread_defined` (lies) or the original (unusable downstream)."*
+**Interview line:** *"Connection strings are endpoint-relative: `127.0.0.1:5434` from the host, `cambodia_dw_postgres:5432` from inside a container — the mapped port is a host-only abstraction. Cross-container communication uses service name + internal port, resolved by Docker's internal DNS."*
 
 **Commands:**
-- Run: `uv run dbt run --project-dir cambodia_dw`
-- Test: `uv run dbt test --project-dir cambodia_dw`
-- Verify: `docker exec -it cambodia_dw_postgres psql -U airflow -d airflow -c "\dv dbt_dev_staging.*"`
-
-
-
-## Day 19 Phase 1 - Dimensions as dbt mart models
-
-Built: 7 files.
-- seeds/province_reference.csv (25 rows)
-- seeds/indicator_reference.csv (5 rows)
-- models/marts/dim_province.sql
-- models/marts/dim_date.sql
-- models/marts/dim_indicator.sql
-- models/marts/schema.yml (17 tests)
-- dbt_project.yml (marts schema config)
-
-Decisions:
-- Seeds over INSERT SQL for static reference data - versioned, reviewable, reproducible
-- Explicit surrogate keys in seed, not ROW_NUMBER (renumbers on insert)
-- Blue/green migration: Phase 1 = build + verify, Phase 2 = cutover + retire
-- dim_indicator = metric catalog with unit, grain, source table
-- Marts as tables (joined constantly), staging as views (cheap)
-
-Also fixed on Day 19:
-- TRUNCATE + INSERT pattern in both extractors, replacing if_exists=replace
-  Reason: dbt staging views depend on raw.* tables, DROP TABLE fails with DependentObjectsStillExist
-- Removed file=sys.stderr kwarg from logger.error in exchange extractor (would raise TypeError)
-
-Verification:
-- dbt seed PASS=2
-- dbt run PASS=6 (correct schemas after dbt_project.yml fix)
-- dbt test PASS=34
-- Row counts: 25=25 provinces, 7580=7580 dates
-- Set difference: 0 rows
-- Both extractors run standalone from worker: 25 rows and 7531 rows
-- DAG run success x3 with TRUNCATE fix in place
-
-Issues resolved:
-- Schema mapping swapped in dbt_project.yml (fixed via Out-File overwrite)
-- Orphaned objects from wrong-schema build dropped manually
-- DROP TABLE blocked by dbt views (fixed with TRUNCATE + INSERT)
-- Airflow metadata Postgres password mismatch (fixed via ALTER USER)
-
-Interview lines:
-- Blue/green migrations: build alongside old, verify equivalence, cut over, retire
-- Static reference data belongs in seeds (versioned, PR-reviewable)
-- Surrogate keys explicit in seed, not ROW_NUMBER
-- Marts as tables, staging as views - different roles, different materializations
-- TRUNCATE + INSERT preserves dependent views; DROP + CREATE breaks them
-- Daily DAG runs catch regressions; manual runs hide them
-
-Commands:
-- uv run dbt seed --project-dir cambodia_dw
-- uv run dbt run --project-dir cambodia_dw
-- uv run dbt test --project-dir cambodia_dw
-- docker exec airflow-airflow-worker-1 python /opt/airflow/scripts/extract_population.py
-
-
-
-
-## Day 20 - Fact tables
-
-Built: 2 files.
-- models/marts/fact_population.sql - snapshot fact, one row per province per snapshot year (2024)
-- models/marts/fact_exchange_rate.sql - transactional fact, one row per trading date
-- schema.yml extended with relationships tests (FK to dimensions)
-
-Decisions:
-- fact_population grain = (province_key, snapshot_year) not fake daily date_key
-  Fake daily would misrepresent annual snapshot as daily measurement
-- Separate fact tables per measure, not unified fact with indicator_key
-  Population is annual-provincial, exchange rates are daily-national; incompatible grains
-- dim_indicator is documentation catalog, not load-bearing in fact structure
-- spread_value included with SEMANTICS UNKNOWN warning (reflects what was measured)
-- province_code, province_name, date denormalized in facts for BI convenience
-  Cost: 25 rows and 7531 rows of duplicate text. Benefit: no join needed for common queries
-
-Tests added:
-- relationships (FK) tests: fact_population.province_key -> dim_province, fact_exchange_rate.date_key -> dim_date
-- unique on fact_population.province_key (one row per province in this snapshot)
-- unique on fact_exchange_rate.date_key (one row per date)
-
-Issues resolved:
-- Deprecation warning: relationships to:/field: needs to be nested under arguments: in dbt 1.12+
-- Notepad save did not land the first attempt; verified with Select-String before rerun
-
-Verification:
-- dbt run PASS=8 WARN=0 ERROR=0 no deprecation warnings
-- dbt test PASS=45 WARN=0 ERROR=0
-- fact_population: 25 rows, top 3 by population = Phnom Penh, Kandal, Prey Veng
-- fact_exchange_rate: 7531 rows, sample dates show correct surrogate keys
-
-Interview lines:
-- Snapshot facts use period as grain (snapshot_year); faking a date_key misrepresents frequency
-- Fact tables join dimensions via surrogate keys, not natural keys
-- Unified fact with indicator_key only works when all measures share grain
-- Deprecation warnings are technical debt; one line now vs outage at next major upgrade
-- Denormalizing dim text into facts is a real tradeoff; small facts benefit, large facts don't
-
-Commands:
-- uv run dbt run --project-dir cambodia_dw
-- uv run dbt test --project-dir cambodia_dw
-
-
-## Day 21 - Intermediate and summary mart
-
-Built: 4 files.
-- models/intermediate/int_population_by_province.sql - fact joined to dim, renamed for downstream
-- models/intermediate/schema.yml - 4 tests
-- models/marts/province_year_summary.sql - summary mart, one row per (province, year)
-- marts/schema.yml extended with province_year_summary block (8 tests)
-- dbt_project.yml - intermediate config (schema: intermediate, materialized: view)
-
-Decisions:
-- Separate intermediate + summary layers, not fused
-  Intermediate does the work (join, rename). Mart is presentation (final column names, table materialization)
-- Summary designed for multi-indicator extension - add columns, not restructure
-- int_population_by_province is a view (cheap, always fresh)
-- province_year_summary is a table (queried by BI, must be fast)
-- province_key is unique in summary today because only 2024 exists
-  When 2025 arrives, uniqueness test will fail - forces acknowledgment of grain change, not silent drift
-
-Verification:
-- dbt run PASS=10 (3 staging + 3 dims + 2 facts + 1 int + 1 summary)
-- dbt test all passing
-- Summary row count = 25
-- Top 5 by population matches fact (Phnom Penh, Kandal, Prey Veng, Battambang, Siem Reap)
-- RECONCILIATION: SUM(population_total) = SUM(fact_population) = 17,280,543
-
-Issues resolved:
-- YAML parse error - paste landed inside spread_value description string, breaking quote
-  Fixed with full-file overwrite, verified with Select-String SEMANTICS UNKNOWN
-
-Interview lines:
-- Intermediate models prevent duplication - shared logic built once, referenced by multiple marts
-- Marts materialize as tables (BI queries), intermediate as views (cheap recompute)
-- Uniqueness tests on intermediate/summary encode the current grain
-  When data grain changes, test fails - forces acknowledgment, prevents silent dashboard breaks
-- Reconciliation between summary and fact is the real proof of aggregation correctness
-  Row count alone can hide subtle aggregation bugs (missing rows offset by wrong values)
-
-Commands:
-- uv run dbt run --project-dir cambodia_dw
-- uv run dbt test --project-dir cambodia_dw
-- docker exec -it cambodia_dw_postgres psql -U airflow -d airflow -c "SELECT (SELECT SUM(population_total) FROM dbt_dev_marts.province_year_summary) AS summary_total, (SELECT SUM(population) FROM dbt_dev_marts.fact_population) AS fact_total;"
-
-
-## Day 22 - Quality tests
-
-Built:
-- 3 custom SQL tests in cambodia_dw/tests/ (assert_positive_population, assert_positive_exchange_values, assert_exchange_rate_range)
-- 6 accepted_values tests in marts/schema.yml (dim_date: quarter/month/day_of_week; dim_indicator: indicator_code/unit/grain)
-- 1 relationships test in intermediate/schema.yml (int_population_by_province.province_key -> dim_province)
-- Test count: 67 total (was 50)
-
-Decisions:
-- No test on purchase <= sale: 16 documented inverted rows would fail every run
-- No test on midpoint formula: 2109 rounding inconsistencies would fail every run
-- No test on missing days: 49 known gaps, pinned in validators.py Day 14
-- Business-rule tests catch semantic errors (population <= 0), not just structural (not_null/unique)
-- accepted_values on dim_indicator fields validates the metric catalog contract
-
-Demo (deliberately corrupted data):
-- UPDATE raw.population_by_province SET Population = -1 WHERE province_code = KH-12
-- dbt run --select fact_population+ rebuilt fact/int/summary with -1
-- dbt test FAILED: assert_positive_population caught 1 result, ERROR=1
-- Restored via extractor (TRUNCATE + INSERT) + dbt run
-- All 67 tests pass again
-
-Issues resolved:
-- PowerShell docker exec with escaped \" failed for psql UPDATE
-- Solution: write SQL to file, pipe with Get-Content | docker exec -i
-- Same pattern as Day 8, restated
-
-Interview lines:
-- Test the structural layer (not_null/unique) AND the semantic layer (business rules)
-- Not every business rule is testable when source has known defects
-  purchase <= sale cannot be tested because 16 known inverted rows exist
-  Those defects are pinned in validators.py, not dbt tests
-- Test failures name the specific rule - assert_positive_population, not just ERROR
-- Demo proves the defense in depth: bad data at source is caught at fact layer before it reaches summary
+- Resume: `docker compose -f docker/docker-compose.yml up -d` + `docker compose -f docker/airflow/docker-compose.yaml up -d`
+- Test script from worker: `docker exec airflow-airflow-worker-1 python /opt/airflow/scripts/<script>.py`
+- Trigger: UI at `http://localhost:8080`
+- Check run: `docker exec airflow-airflow-scheduler-1 airflow dags list-runs cambodia_pipeline --no-backfill`
+'@ | Out-File -FilePath docs\devlog.md -Append -Encoding utf8
