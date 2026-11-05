@@ -61,11 +61,11 @@ def load_kpis():
 
 @st.cache_data(ttl=300)
 def load_population():
-    """Province-level population — 25 rows."""
+    """Province-level population — 25 rows from province_year_summary."""
     sql = text("""
-        SELECT province_code, province_name, population, snapshot_year
+        SELECT province_code, province_name, population_total, year
         FROM dbt_dev_marts.province_year_summary
-        ORDER BY population DESC
+        ORDER BY population_total DESC
     """)
     return pd.read_sql(sql, get_engine())
 
@@ -187,12 +187,12 @@ def main() -> None:
         alt.Chart(top_provinces)
         .mark_bar()
         .encode(
-            x=alt.X("population:Q", title="Population"),
+            x=alt.X("population_total:Q", title="Population"),
             y=alt.Y("province_name:N", sort="-x", title="Province"),
             tooltip=[
                 alt.Tooltip("province_name:N", title="Province"),
                 alt.Tooltip("province_code:N", title="Code"),
-                alt.Tooltip("population:Q", title="Population", format=","),
+                alt.Tooltip("population_total:Q", title="Population", format=","),
             ],
         )
         .properties(height=max(300, top_n * 24))
@@ -200,16 +200,17 @@ def main() -> None:
     st.altair_chart(chart_pop, width="stretch")
 
     # Share of national population
-    total_pop = df_pop["population"].sum()
-    df_pop["share_pct"] = (df_pop["population"] / total_pop * 100).round(2)
+    total_pop = df_pop["population_total"].sum()
+    df_pop["share_pct"] = (
+        df_pop["population_total"] / total_pop * 100).round(2)
 
     st.subheader("Province share of national population")
     st.dataframe(
-        df_pop[["province_code", "province_name", "population", "share_pct"]],
+        df_pop[["province_code", "province_name", "population_total", "share_pct"]],
         column_config={
             "province_code": "Code",
             "province_name": "Province",
-            "population": st.column_config.NumberColumn("Population", format="%d"),
+            "population_total": st.column_config.NumberColumn("Population", format="%d"),
             "share_pct": st.column_config.NumberColumn("Share (%)", format="%.2f"),
         },
         hide_index=True,
