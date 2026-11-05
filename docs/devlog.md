@@ -343,3 +343,42 @@ Issues:
 
 Commands:
 - Get-Content sql/analysis/day23_queries.sql | docker exec -i cambodia_dw_postgres psql -U airflow -d airflow
+
+
+
+## Day 24 - Dashboard
+
+Built:
+- dashboard/app.py - Streamlit dashboard reading from dbt_dev_marts
+- uv add streamlit added to pyproject.toml
+
+Features:
+- KPI row: province count, total population, exchange-rate date range, avg rate
+- Population bar chart with sidebar top-N filter
+- Province share of national population table
+- Exchange-rate time series (Altair, zero=False)
+- Yearly summary table + avg rate line chart
+- Volatility bar chart (2010 highest)
+- Data completeness expander referencing the 49 missing days
+- Year range slider filter
+
+Decisions:
+- @st.cache_resource for engine (pooled connection reused across reruns)
+- @st.cache_data(ttl=300) for query results (5 min cache)
+- Altair over native charts for time series (tooltips, zero=False scale)
+- Read directly from dbt_dev_marts, not raw - summary mart already has the right shape
+- Province colors by population count (grayscale orange scheme)
+
+Issues resolved:
+- Column name mismatch: load_population() used population/snapshot_year from fact_population
+  province_year_summary exposes population_total/year instead
+  Fix: 7 replacements in app.py; \d province_year_summary confirmed the schema
+- Streamlit first-run email prompt: just press Enter, no email needed
+
+Interview lines:
+- cache_resource for connections (expensive to create, share one pool)
+- cache_data for results (can be copied, expire on TTL)
+- Native charts vs Altair: native for simple, Altair for tooltips/axis control
+- Always \d the table before writing queries - column name assumptions are the #1 error
+
+Run: uv run streamlit run dashboard/app.py
