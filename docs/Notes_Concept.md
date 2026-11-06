@@ -165,3 +165,8 @@ Complex Joins: Merging two or more cleaned datasets together (such as joining a 
 Intermediate Business Logic: Calculating metrics, flags, or intermediate transformations that multiple different downstream dashboards or marts might need.
 
 Reusability: Instead of rewriting the same complex join or calculation in five different mart tables, you write it once in an intermediate model, and let your marts simply reference (ref) it.
+
+
+
+## the streamlit mean:
+Streamlit is an open-source Python library that lets you turn data scripts into interactive, web-based applications in just a few lines of code—without needing to write HTML, CSS, or JavaScript.
