@@ -26,3 +26,8 @@ data/processed/*
 # OS
 .DS_Store
 Thumbs.db
+# Stale NTFS entry from a PowerShell parse accident (Day 19)
+urable*
+
+# Personal learning notes
+Notes_Concept.md

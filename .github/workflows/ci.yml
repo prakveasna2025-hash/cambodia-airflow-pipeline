@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: airflow
+          POSTGRES_PASSWORD: changeme
+          POSTGRES_DB: airflow
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U airflow"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      WAREHOUSE_DB_URL: postgresql+psycopg2://airflow:changeme@127.0.0.1:5434/airflow
+      DBT_HOST: 127.0.0.1
+      DBT_PORT: "5434"
+      DBT_USER: airflow
+      DBT_PASSWORD: changeme
+      DBT_DBNAME: airflow
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Create legacy dim tables
+        run: |
+          PGPASSWORD=changeme psql -h 127.0.0.1 -p 5434 -U airflow -d airflow -f sql/create_dim_province.sql
+          PGPASSWORD=changeme psql -h 127.0.0.1 -p 5434 -U airflow -d airflow -f sql/create_dim_date.sql
+
+      - name: Run extractors
+        run: |
+          uv run python scripts/extract_population.py
+          uv run python scripts/extract_exchange_rate.py
+
+      - name: dbt seed
+        run: uv run dbt seed --project-dir cambodia_dw --profiles-dir cambodia_dw/profiles_ci
+
+      - name: dbt run
+        run: uv run dbt run --project-dir cambodia_dw --profiles-dir cambodia_dw/profiles_ci
+
+      - name: dbt test
+        run: uv run dbt test --project-dir cambodia_dw --profiles-dir cambodia_dw/profiles_ci
+
+      - name: Warehouse health check
+        run: uv run python scripts/validate_warehouse.py
+
+      - name: pytest
+        run: uv run pytest tests/ -v
