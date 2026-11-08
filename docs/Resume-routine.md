@@ -56,3 +56,14 @@ uv run dbt debug --project-dir cambodia_dw
 ## Warehouse
 - URL: postgresql+psycopg2://airflow:changeme@127.0.0.1:5434/airflow
 - Container: cambodia_dw_postgres (host 5434 → container 5432)
+
+
+## Run the Dashboard
+uv run streamlit run dashboard/app.py
+
+
+## How to clone the repository
+mkdir $HOME\clean-room -Force
+cd $HOME\clean-room
+git clone https://github.com/prakveasna2025-hash/cambodia-airflow-pipeline.git
+cd cambodia-airflow-pipeline
