@@ -32,6 +32,7 @@ jobs:
       DBT_USER: airflow
       DBT_PASSWORD: changeme
       DBT_DBNAME: airflow
+      PYTHONPATH: .
 
     steps:
       - name: Checkout
